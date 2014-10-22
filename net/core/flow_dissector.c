@@ -157,7 +157,7 @@ ipv6:
 		ports = skb_header_pointer(skb, nhoff + poff,
 					   sizeof(_ports), &_ports);
 		if (ports)
-			flow->ports = *ports;
+			flow->ports = net_hdr_word(ports);
 	}
 
 	flow->thoff = (u16) nhoff;

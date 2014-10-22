@@ -580,6 +580,9 @@ int phy_register_fixup_for_uid(u32 phy_uid, u32 phy_uid_mask,
 		int (*run)(struct phy_device *));
 int phy_scan_fixups(struct phy_device *phydev);
 
+int phy_read_mmd(struct phy_device *phydev, int prtad, int devad, int addr);
+void phy_write_mmd(struct phy_device *phydev, int prtad, int devad, u16 data);
+
 int phy_init_eee(struct phy_device *phydev, bool clk_stop_enable);
 int phy_get_eee_err(struct phy_device *phydev);
 int phy_ethtool_set_eee(struct phy_device *phydev, struct ethtool_eee *data);

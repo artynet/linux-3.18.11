@@ -41,7 +41,7 @@
 #include <linux/mtd/xip.h>
 
 #define AMD_BOOTLOC_BUG
-#define FORCE_WORD_WRITE 0
+#define FORCE_WORD_WRITE 1
 
 #define MAX_WORD_RETRIES 3
 
@@ -52,7 +52,9 @@
 
 static int cfi_amdstd_read (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
 static int cfi_amdstd_write_words(struct mtd_info *, loff_t, size_t, size_t *, const u_char *);
+#if !FORCE_WORD_WRITE
 static int cfi_amdstd_write_buffers(struct mtd_info *, loff_t, size_t, size_t *, const u_char *);
+#endif
 static int cfi_amdstd_erase_chip(struct mtd_info *, struct erase_info *);
 static int cfi_amdstd_erase_varsize(struct mtd_info *, struct erase_info *);
 static void cfi_amdstd_sync (struct mtd_info *);
@@ -192,6 +194,7 @@ static void fixup_amd_bootblock(struct mtd_info *mtd)
 }
 #endif
 
+#if !FORCE_WORD_WRITE
 static void fixup_use_write_buffers(struct mtd_info *mtd)
 {
 	struct map_info *map = mtd->priv;
@@ -201,6 +204,7 @@ static void fixup_use_write_buffers(struct mtd_info *mtd)
 		mtd->_write = cfi_amdstd_write_buffers;
 	}
 }
+#endif /* !FORCE_WORD_WRITE */
 
 /* Atmel chips don't use the same PRI format as AMD chips */
 static void fixup_convert_atmel_pri(struct mtd_info *mtd)
@@ -1306,8 +1310,8 @@ static int __xipram do_write_oneword(struct map_info *map, struct flchip *chip, 
 			break;
 		}
 
-		if (chip_ready(map, adr))
-			break;
+		if (chip_good(map, adr, datum))
+			goto enable_xip;
 
 		/* Latency issues. Drop the lock, wait a while and retry */
 		UDELAY(map, chip, adr, 1);
@@ -1323,6 +1327,8 @@ static int __xipram do_write_oneword(struct map_info *map, struct flchip *chip, 
 
 		ret = -EIO;
 	}
+
+ enable_xip:
 	xip_enable(map, chip, adr);
  op_done:
 	chip->state = FL_READY;
@@ -1461,6 +1467,7 @@ static int cfi_amdstd_write_words(struct mtd_info *mtd, loff_t to, size_t len,
 /*
  * FIXME: interleaved mode not tested, and probably not supported!
  */
+#if !FORCE_WORD_WRITE
 static int __xipram do_write_buffer(struct map_info *map, struct flchip *chip,
 				    unsigned long adr, const u_char *buf,
 				    int len)
@@ -1585,7 +1592,6 @@ static int __xipram do_write_buffer(struct map_info *map, struct flchip *chip,
 	return ret;
 }
 
-
 static int cfi_amdstd_write_buffers(struct mtd_info *mtd, loff_t to, size_t len,
 				    size_t *retlen, const u_char *buf)
 {
@@ -1660,6 +1666,7 @@ static int cfi_amdstd_write_buffers(struct mtd_info *mtd, loff_t to, size_t len,
 
 	return 0;
 }
+#endif /* !FORCE_WORD_WRITE */
 
 /*
  * Wait for the flash chip to become ready to write data
@@ -1893,7 +1900,6 @@ static int cfi_amdstd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return 0;
 }
 
-
 /*
  * Handle devices with one erase region, that only implement
  * the chip erase command.
@@ -1957,8 +1963,8 @@ static int __xipram do_erase_chip(struct map_info *map, struct flchip *chip)
 			chip->erase_suspended = 0;
 		}
 
-		if (chip_ready(map, adr))
-			break;
+		if (chip_good(map, adr, map_word_ff(map)))
+			goto op_done;
 
 		if (time_after(jiffies, timeo)) {
 			printk(KERN_WARNING "MTD %s(): software timeout\n",
@@ -1978,6 +1984,7 @@ static int __xipram do_erase_chip(struct map_info *map, struct flchip *chip)
 		ret = -EIO;
 	}
 
+ op_done:
 	chip->state = FL_READY;
 	xip_enable(map, chip, adr);
 	DISABLE_VPP(map);
@@ -2046,9 +2053,9 @@ static int __xipram do_erase_oneblock(struct map_info *map, struct flchip *chip,
 			chip->erase_suspended = 0;
 		}
 
-		if (chip_ready(map, adr)) {
+		if (chip_good(map, adr, map_word_ff(map))) {
 			xip_enable(map, chip, adr);
-			break;
+			goto op_done;
 		}
 
 		if (time_after(jiffies, timeo)) {
@@ -2070,6 +2077,7 @@ static int __xipram do_erase_oneblock(struct map_info *map, struct flchip *chip,
 		ret = -EIO;
 	}
 
+ op_done:
 	chip->state = FL_READY;
 	DISABLE_VPP(map);
 	put_chip(map, chip, adr);

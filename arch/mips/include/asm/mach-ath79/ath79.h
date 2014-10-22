@@ -32,6 +32,7 @@ enum ath79_soc_type {
 	ATH79_SOC_AR9341,
 	ATH79_SOC_AR9342,
 	ATH79_SOC_AR9344,
+	ATH79_SOC_QCA9533,
 	ATH79_SOC_QCA9556,
 	ATH79_SOC_QCA9558,
 };
@@ -100,6 +101,16 @@ static inline int soc_is_ar934x(void)
 	return soc_is_ar9341() || soc_is_ar9342() || soc_is_ar9344();
 }
 
+static inline int soc_is_qca9533(void)
+{
+	return ath79_soc == ATH79_SOC_QCA9533;
+}
+
+static inline int soc_is_qca953x(void)
+{
+	return soc_is_qca9533();
+}
+
 static inline int soc_is_qca9556(void)
 {
 	return ath79_soc == ATH79_SOC_QCA9556;
@@ -116,6 +127,7 @@ static inline int soc_is_qca955x(void)
 }
 
 extern void __iomem *ath79_ddr_base;
+extern void __iomem *ath79_gpio_base;
 extern void __iomem *ath79_pll_base;
 extern void __iomem *ath79_reset_base;
 
@@ -141,5 +153,9 @@ static inline u32 ath79_reset_rr(unsigned reg)
 
 void ath79_device_reset_set(u32 mask);
 void ath79_device_reset_clear(u32 mask);
+u32 ath79_device_reset_get(u32 mask);
+
+void ath79_flash_acquire(void);
+void ath79_flash_release(void);
 
 #endif /* __ASM_MACH_ATH79_H */

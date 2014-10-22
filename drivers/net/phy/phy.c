@@ -1009,6 +1009,12 @@ static int phy_read_mmd_indirect(struct mii_bus *bus, int prtad, int devad,
 	return ret;
 }
 
+int phy_read_mmd(struct phy_device *phydev, int prtad, int devad, int addr)
+{
+	return phy_read_mmd_indirect(phydev->bus, prtad, devad, phydev->addr);
+}
+EXPORT_SYMBOL(phy_read_mmd);
+
 /**
  * phy_write_mmd_indirect - writes data to the MMD registers
  * @bus: the target MII bus
@@ -1033,6 +1039,12 @@ static void phy_write_mmd_indirect(struct mii_bus *bus, int prtad, int devad,
 	/* Write the data into MMD's selected register */
 	bus->write(bus, addr, MII_MMD_DATA, data);
 }
+
+void phy_write_mmd(struct phy_device *phydev, int prtad, int devad, u16 data)
+{
+	phy_write_mmd_indirect(phydev->bus, prtad, devad, phydev->addr, data);
+}
+EXPORT_SYMBOL(phy_write_mmd);
 
 /**
  * phy_init_eee - init and check the EEE feature
