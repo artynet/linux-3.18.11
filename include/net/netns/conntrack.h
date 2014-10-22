@@ -80,6 +80,7 @@ struct netns_ct {
 	int			sysctl_acct;
 	int			sysctl_tstamp;
 	int			sysctl_checksum;
+	int			skip_filter;
 	unsigned int		sysctl_log_invalid; /* Log invalid packets */
 	int			sysctl_auto_assign_helper;
 	bool			auto_assign_helper_warned;

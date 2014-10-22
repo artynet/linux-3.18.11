@@ -329,6 +329,33 @@ static int yaffs_readpage(struct file *f, struct page *pg)
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
+#define YCRED_FSUID()	from_kuid(&init_user_ns, current_fsuid())
+#define YCRED_FSGID()	from_kgid(&init_user_ns, current_fsgid())
+#else
+#define YCRED_FSUID()	YCRED(current)->fsuid
+#define YCRED_FSGID()	YCRED(current)->fsgid
+
+static inline uid_t i_uid_read(const struct inode *inode)
+{
+	return inode->i_uid;
+}
+
+static inline gid_t i_gid_read(const struct inode *inode)
+{
+	return inode->i_gid;
+}
+
+static inline void i_uid_write(struct inode *inode, uid_t uid)
+{
+	inode->i_uid = uid;
+}
+
+static inline void i_gid_write(struct inode *inode, gid_t gid)
+{
+	inode->i_gid = gid;
+}
+#endif
 
 static void yaffs_set_super_dirty_val(struct yaffs_dev *dev, int val)
 {
@@ -1225,9 +1252,9 @@ static int yaffs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 	struct yaffs_obj *parent = yaffs_inode_to_obj(dir);
 
 	int error = -ENOSPC;
-	uid_t uid = YCRED(current)->fsuid;
+	uid_t uid = YCRED_FSUID();
 	gid_t gid =
-	    (dir->i_mode & S_ISGID) ? dir->i_gid : YCRED(current)->fsgid;
+	    (dir->i_mode & S_ISGID) ? i_gid_read(dir) : YCRED_FSGID();
 
 	if ((dir->i_mode & S_ISGID) && S_ISDIR(mode))
 		mode |= S_ISGID;
@@ -1424,9 +1451,9 @@ static int yaffs_symlink(struct inode *dir, struct dentry *dentry,
 {
 	struct yaffs_obj *obj;
 	struct yaffs_dev *dev;
-	uid_t uid = YCRED(current)->fsuid;
+	uid_t uid = YCRED_FSUID();
 	gid_t gid =
-	    (dir->i_mode & S_ISGID) ? dir->i_gid : YCRED(current)->fsgid;
+	    (dir->i_mode & S_ISGID) ? i_gid_read(dir) : YCRED_FSGID();
 
 	yaffs_trace(YAFFS_TRACE_OS, "yaffs_symlink");
 
@@ -1829,8 +1856,8 @@ static void yaffs_fill_inode_from_obj(struct inode *inode,
 
 		inode->i_ino = obj->obj_id;
 		inode->i_mode = obj->yst_mode;
-		inode->i_uid = obj->yst_uid;
-		inode->i_gid = obj->yst_gid;
+		i_uid_write(inode, obj->yst_uid);
+		i_gid_write(inode, obj->yst_gid);
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19))
 		inode->i_blksize = inode->i_sb->s_blocksize;
 #endif
@@ -1856,7 +1883,7 @@ static void yaffs_fill_inode_from_obj(struct inode *inode,
 
 		yaffs_trace(YAFFS_TRACE_OS,
 			"yaffs_fill_inode mode %x uid %d gid %d size %lld count %d",
-			inode->i_mode, inode->i_uid, inode->i_gid,
+			inode->i_mode, i_uid_read(inode), i_gid_read(inode),
 			inode->i_size, atomic_read(&inode->i_count));
 
 		switch (obj->yst_mode & S_IFMT) {
@@ -2498,6 +2525,7 @@ static const struct super_operations yaffs_super_ops = {
 
 struct yaffs_options {
 	int inband_tags;
+	int tags_9bytes;
 	int skip_checkpoint_read;
 	int skip_checkpoint_write;
 	int no_cache;
@@ -2537,6 +2565,8 @@ static int yaffs_parse_options(struct yaffs_options *options,
 
 		if (!strcmp(cur_opt, "inband-tags")) {
 			options->inband_tags = 1;
+		} else if (!strcmp(cur_opt, "tags-9bytes")) {
+			options->tags_9bytes = 1;
 		} else if (!strcmp(cur_opt, "tags-ecc-off")) {
 			options->tags_ecc_on = 0;
 			options->tags_ecc_overridden = 1;
@@ -2610,7 +2640,6 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 	struct yaffs_param *param;
 
 	int read_only = 0;
-	int inband_tags = 0;
 
 	struct yaffs_options options;
 
@@ -2650,6 +2679,9 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 
 	memset(&options, 0, sizeof(options));
 
+	if (IS_ENABLED(CONFIG_YAFFS_9BYTE_TAGS))
+		options.tags_9bytes = 1;
+
 	if (yaffs_parse_options(&options, data_str)) {
 		/* Option parsing failed */
 		return NULL;
@@ -2683,17 +2715,22 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 	}
 
 	/* Added NCB 26/5/2006 for completeness */
-	if (yaffs_version == 2 && !options.inband_tags
-	    && WRITE_SIZE(mtd) == 512) {
+	if (yaffs_version == 2 &&
+	    (!options.inband_tags || options.tags_9bytes) &&
+	    WRITE_SIZE(mtd) == 512) {
 		yaffs_trace(YAFFS_TRACE_ALWAYS, "auto selecting yaffs1");
 		yaffs_version = 1;
 	}
 
-	if (mtd->oobavail < sizeof(struct yaffs_packed_tags2) ||
-	    options.inband_tags)
-		inband_tags = 1;
+	if (yaffs_version == 2 &&
+	    mtd->oobavail < sizeof(struct yaffs_packed_tags2)) {
+		yaffs_trace(YAFFS_TRACE_ALWAYS, "auto selecting inband tags");
+		options.inband_tags = 1;
+	}
 
-	if(yaffs_verify_mtd(mtd, yaffs_version, inband_tags) < 0)
+	err = yaffs_verify_mtd(mtd, yaffs_version, options.inband_tags,
+			       options.tags_9bytes);
+	if (err < 0)
 		return NULL;
 
 	/* OK, so if we got here, we have an MTD that's NAND and looks
@@ -2754,7 +2791,8 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 
 	param->n_reserved_blocks = 5;
 	param->n_caches = (options.no_cache) ? 0 : 10;
-	param->inband_tags = inband_tags;
+	param->inband_tags = options.inband_tags;
+	param->tags_9bytes = options.tags_9bytes;
 
 	param->enable_xattr = 1;
 	if (options.lazy_loading_overridden)
@@ -2998,6 +3036,7 @@ static DECLARE_FSTYPE(yaffs2_fs_type, "yaffs2", yaffs2_read_super,
 #endif
 
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
 static struct proc_dir_entry *my_proc_entry;
 
 static char *yaffs_dump_dev_part0(char *buf, struct yaffs_dev *dev)
@@ -3371,6 +3410,7 @@ static int yaffs_proc_write(struct file *file, const char *buf,
 		return yaffs_proc_debug_write(file, buf, count, data);
 	return yaffs_proc_write_trace_options(file, buf, count, data);
 }
+#endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)) */
 
 /* Stuff to handle installation of file systems */
 struct file_system_to_install {
@@ -3394,6 +3434,7 @@ static int __init init_yaffs_fs(void)
 
 	mutex_init(&yaffs_context_lock);
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
 	/* Install the proc_fs entries */
 	my_proc_entry = create_proc_entry("yaffs",
 					  S_IRUGO | S_IFREG, YPROC_ROOT);
@@ -3405,6 +3446,7 @@ static int __init init_yaffs_fs(void)
 	} else {
 		return -ENOMEM;
         }
+#endif
 
 	/* Now add the file system entries */
 
@@ -3441,7 +3483,9 @@ static void __exit exit_yaffs_fs(void)
 	yaffs_trace(YAFFS_TRACE_ALWAYS,
 		"yaffs built " __DATE__ " " __TIME__ " removing.");
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
 	remove_proc_entry("yaffs", YPROC_ROOT);
+#endif
 
 	fsinst = fs_to_install;
 
