@@ -73,6 +73,10 @@ static int fib6_rule_action(struct fib_rule *rule, struct flowi *flp,
 		err = -EACCES;
 		rt = net->ipv6.ip6_prohibit_entry;
 		goto discard_pkt;
+	case FR_ACT_POLICY_FAILED:
+		err = -EACCES;
+		rt = net->ipv6.ip6_policy_failed_entry;
+		goto discard_pkt;
 	}
 
 	table = fib6_get_table(net, rule->table);
@@ -104,6 +108,7 @@ static int fib6_rule_action(struct fib_rule *rule, struct flowi *flp,
 				goto again;
 			flp6->saddr = saddr;
 		}
+		err = rt->dst.error;
 		goto out;
 	}
 again:

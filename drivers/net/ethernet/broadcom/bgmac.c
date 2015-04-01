@@ -16,6 +16,7 @@
 #include <linux/phy.h>
 #include <linux/interrupt.h>
 #include <linux/dma-mapping.h>
+#include <linux/platform_data/b53.h>
 #include <bcm47xx_nvram.h>
 
 static const struct bcma_device_id bgmac_bcma_tbl[] = {
@@ -361,6 +362,27 @@ static int bgmac_dma_rx_read(struct bgmac *bgmac, struct bgmac_dma_ring *ring,
 		do {
 			dma_addr_t old_dma_addr = slot->dma_addr;
 			int err;
+
+			if (len > BGMAC_RX_MAX_FRAME_SIZE) {
+				struct bgmac_dma_desc *dma_desc = ring->cpu_base + ring->start;
+
+				bgmac_err(bgmac, "Hardware reported invalid packet length %d for slot %d!\n", len, ring->start);
+				bgmac_err(bgmac, "flags: 0x%04X\n", flags);
+				bgmac_err(bgmac, "ctl0: 0x%08X\tctl1: 0x%08X\n", le32_to_cpu(dma_desc->ctl0), le32_to_cpu(dma_desc->ctl1));
+
+				bgmac_err(bgmac, "   BGMAC_DMA_RX_CTL: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_CTL));
+				bgmac_err(bgmac, " BGMAC_DMA_RX_INDEX: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_INDEX));
+				bgmac_err(bgmac, "BGMAC_DMA_RX_RINGLO: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_RINGLO));
+				bgmac_err(bgmac, "BGMAC_DMA_RX_RINGHI: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_RINGHI));
+				bgmac_err(bgmac, "BGMAC_DMA_RX_STATUS: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_STATUS));
+				bgmac_err(bgmac, " BGMAC_DMA_RX_ERROR: 0x%08X\n", bgmac_read(bgmac, ring->mmio_base + BGMAC_DMA_RX_ERROR));
+
+				dma_sync_single_for_device(dma_dev,
+							   slot->dma_addr,
+							   BGMAC_RX_BUF_SIZE,
+							   DMA_FROM_DEVICE);
+				break;
+			}
 
 			/* Check for poison and drop or pass the packet */
 			if (len == 0xdead && flags == 0xbeef) {
@@ -1167,10 +1189,10 @@ static int bgmac_poll(struct napi_struct *napi, int weight)
 		bgmac->int_status = 0;
 	}
 
-	if (handled < weight)
+	if (handled < weight) {
 		napi_complete(napi);
-
-	bgmac_chip_intrs_on(bgmac);
+		bgmac_chip_intrs_on(bgmac);
+	}
 
 	return handled;
 }
@@ -1405,6 +1427,17 @@ static void bgmac_mii_unregister(struct bgmac *bgmac)
 	mdiobus_free(mii_bus);
 }
 
+static struct b53_platform_data bgmac_b53_pdata = {
+};
+
+static struct platform_device bgmac_b53_dev = {
+	.name		= "b53-srab-switch",
+	.id		= -1,
+	.dev		= {
+		.platform_data = &bgmac_b53_pdata,
+	},
+};
+
 /**************************************************
  * BCMA bus ops
  **************************************************/
@@ -1412,6 +1445,7 @@ static void bgmac_mii_unregister(struct bgmac *bgmac)
 /* http://bcm-v4.sipsolutions.net/mac-gbit/gmac/chipattach */
 static int bgmac_probe(struct bcma_device *core)
 {
+	struct bcma_chipinfo *ci = &core->bus->chipinfo;
 	struct net_device *net_dev;
 	struct bgmac *bgmac;
 	struct ssb_sprom *sprom = &core->bus->sprom;
@@ -1474,8 +1508,8 @@ static int bgmac_probe(struct bcma_device *core)
 	bgmac_chip_reset(bgmac);
 
 	/* For Northstar, we have to take all GMAC core out of reset */
-	if (core->id.id == BCMA_CHIP_ID_BCM4707 ||
-	    core->id.id == BCMA_CHIP_ID_BCM53018) {
+	if (ci->id == BCMA_CHIP_ID_BCM4707 ||
+	    ci->id == BCMA_CHIP_ID_BCM53018) {
 		struct bcma_device *ns_core;
 		int ns_gmac;
 
@@ -1515,10 +1549,22 @@ static int bgmac_probe(struct bcma_device *core)
 	if (core->bus->sprom.boardflags_lo & BGMAC_BFL_ENETADM)
 		bgmac_warn(bgmac, "Support for ADMtek ethernet switch not implemented\n");
 
+	netif_napi_add(net_dev, &bgmac->napi, bgmac_poll, BGMAC_WEIGHT);
+
 	err = bgmac_mii_register(bgmac);
 	if (err) {
 		bgmac_err(bgmac, "Cannot register MDIO\n");
 		goto err_dma_free;
+	}
+
+	if ((ci->id == BCMA_CHIP_ID_BCM4707 ||
+	     ci->id == BCMA_CHIP_ID_BCM53018) &&
+	    !bgmac_b53_pdata.regs) {
+		bgmac_b53_pdata.regs = ioremap_nocache(0x18007000, 0x1000);
+
+		err = platform_device_register(&bgmac_b53_dev);
+		if (!err)
+			bgmac->b53_device = &bgmac_b53_dev;
 	}
 
 	err = register_netdev(bgmac->net_dev);
@@ -1528,8 +1574,6 @@ static int bgmac_probe(struct bcma_device *core)
 	}
 
 	netif_carrier_off(net_dev);
-
-	netif_napi_add(net_dev, &bgmac->napi, bgmac_poll, BGMAC_WEIGHT);
 
 	return 0;
 
@@ -1549,9 +1593,13 @@ static void bgmac_remove(struct bcma_device *core)
 {
 	struct bgmac *bgmac = bcma_get_drvdata(core);
 
-	netif_napi_del(&bgmac->napi);
+	if (bgmac->b53_device)
+		platform_device_unregister(&bgmac_b53_dev);
+	bgmac->b53_device = NULL;
+
 	unregister_netdev(bgmac->net_dev);
 	bgmac_mii_unregister(bgmac);
+	netif_napi_del(&bgmac->napi);
 	bgmac_dma_free(bgmac);
 	bcma_set_drvdata(core, NULL);
 	free_netdev(bgmac->net_dev);
