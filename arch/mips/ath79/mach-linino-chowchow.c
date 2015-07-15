@@ -226,7 +226,7 @@ static void __init chowchow_setup(void)
 	v &= ~0x00ff0000;
 	v |= (CHOWCHOW_GPIO_UART1_RX << 16);
 	__raw_writel(v, reg);
-
+#if 0
 	/* UART0 (low-speed) configuration */
 	r = gpio_request(CHOWCHOW_GPIO_UART0_TX, NULL);
 	if (r) {
@@ -238,6 +238,7 @@ static void __init chowchow_setup(void)
 	ath79_gpio_output_select(CHOWCHOW_GPIO_UART0_TX,
 				   AR934X_GPIO_UART0_SOUT);
 	gpio_free(CHOWCHOW_GPIO_UART0_TX);
+#endif
 
 	/* Mux for UART0 input: UART0 multiplexing is GPIO_IN_ENABLE1, see
 	 * table 8-4 */
