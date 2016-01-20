@@ -69,11 +69,11 @@ static struct gpio_led chowchow_leds_gpio[] __initdata = {
 	{
 		.name		= "usb",
 		.gpio		= CHOWCHOW_GPIO_LED0,
-		.active_low	= 0,
+		.active_low	= 1,
 	}, {
 		.name		= "wlan",
 		.gpio		= CHOWCHOW_GPIO_LED1,
-		.active_low	= 0,
+		.active_low	= 1,
 	}
 };
 
