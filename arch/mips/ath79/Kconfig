@@ -1262,28 +1262,28 @@ config ATH79_MACH_LININO_TIAN_V4
 		Linino Tian v4.
 
 config ATH79_MACH_LININO_CHIWAWA
-    bool "Linino Chiwawa support"
-    select SOC_AR933X
-    select ATH79_DEV_ETH
-    select ATH79_DEV_GPIO_BUTTONS
-    select ATH79_DEV_LEDS_GPIO
-    select ATH79_DEV_M25P80
-    select ATH79_DEV_USB
-    select ATH79_DEV_WMAC
-    help
+	bool "Linino Chiwawa support"
+	select SOC_AR933X
+	select ATH79_DEV_ETH
+	select ATH79_DEV_GPIO_BUTTONS
+	select ATH79_DEV_LEDS_GPIO
+	select ATH79_DEV_M25P80
+	select ATH79_DEV_USB
+	select ATH79_DEV_WMAC
+	help
 		Say 'Y' here if you want your kernel to support
 		Linino Chiwawa.
 
 config ATH79_MACH_LININO_YUN_MINI
-    bool "Arduino YUN mini support"
-    select SOC_AR933X
-    select ATH79_DEV_ETH
-    select ATH79_DEV_GPIO_BUTTONS
-    select ATH79_DEV_LEDS_GPIO
-    select ATH79_DEV_M25P80
-    select ATH79_DEV_USB
-    select ATH79_DEV_WMAC
-    help
+	bool "Arduino YUN mini support"
+	select SOC_AR933X
+	select ATH79_DEV_ETH
+	select ATH79_DEV_GPIO_BUTTONS
+	select ATH79_DEV_LEDS_GPIO
+	select ATH79_DEV_M25P80
+	select ATH79_DEV_USB
+	select ATH79_DEV_WMAC
+	help
 		Say 'Y' here if you want your kernel to support
 		Arduino Yun mini.
 
